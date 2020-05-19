@@ -38,7 +38,19 @@ public class KafkaAuditProvider extends AuditDestination {
 	public static final String AUDIT_MAX_QUEUE_SIZE_PROP = "xasecure.audit.kafka.async.max.queue.size";
 	public static final String AUDIT_MAX_FLUSH_INTERVAL_PROP = "xasecure.audit.kafka.async.max.flush.interval.ms";
 	public static final String AUDIT_KAFKA_BROKER_LIST = "xasecure.audit.kafka.broker_list";
+	public static final String AUDIT_KAFKA_SECURITY_PROTOCOL = "xasecure.audit.kafka.security.protocol";
 	public static final String AUDIT_KAFKA_TOPIC_NAME = "xasecure.audit.kafka.topic_name";
+	public static final String AUDIT_KAFKA_VALUE_SERIALIZER = "xasecure.audit.kafka.value.serializer";
+	public static final String AUDIT_KAFKA_KEY_SERIALIZER = "xasecure.audit.kafka.key.serializer";
+	public static final String AUDIT_KAFKA_BATCH_SIZE = "xasecure.audit.kafka.batch.size";
+	public static final String AUDIT_KAFKA_LINGER_MS = "xasecure.audit.kafka.linger.ms";
+	public static final String AUDIT_KAFKA_ACKS = "xasecure.audit.kafka.acks";
+	public static final String AUDIT_KAFKA_SSL_TRUSTSTORE_LOCATION = "xasecure.audit.kafka.ssl.truststore.location";
+	public static final String AUDIT_KAFKA_SSL_TRUSTSTORE_PASSWORD = "xasecure.audit.kafka.ssl.truststore.password";
+	public static final String AUDIT_KAFKA_SSL_KEYSTORE_LOCATION = "xasecure.audit.kafka.ssl.keystore.location";
+	public static final String AUDIT_KAFKA_SSL_KEYSTORE_PASSWORD = "xasecure.audit.kafka.ssl.keystore.password";
+	public static final String AUDIT_KAFKA_SSL_KEY_PASSWORD = "xasecure.audit.kafka.ssl.key.password";
+
 	boolean initDone = false;
 
 	Producer<String, String> producer = null;
@@ -57,19 +69,7 @@ public class KafkaAuditProvider extends AuditDestination {
 
 		try {
 			if (!initDone) {
-				String brokerList = MiscUtil.getStringProperty(props,
-						AUDIT_KAFKA_BROKER_LIST);
-				if (brokerList == null || brokerList.isEmpty()) {
-					brokerList = "localhost:9092";
-				}
-
-				final Map<String, Object> kakfaProps = new HashMap<String,Object>();
-				kakfaProps.put("metadata.broker.list", brokerList);
-				kakfaProps.put("serializer.class",
-						"kafka.serializer.StringEncoder");
-				// kakfaProps.put("partitioner.class",
-				// "example.producer.SimplePartitioner");
-				kakfaProps.put("request.required.acks", "1");
+				final Map<String, Object> kakfaProps = getKafkaParams(props);
 
 				LOG.info("Connecting to Kafka producer using properties:"
 						+ kakfaProps.toString());
@@ -186,7 +186,7 @@ public class KafkaAuditProvider extends AuditDestination {
 	public void waitToComplete() {
 		LOG.info("waitToComplete() called");
 	}
-	
+
 	@Override
 	public void waitToComplete(long timeout) {
 	}
@@ -194,11 +194,52 @@ public class KafkaAuditProvider extends AuditDestination {
 	@Override
 	public void flush() {
 		LOG.info("flush() called");
-
+		if (producer != null) {
+			try {
+				MiscUtil.executePrivilegedAction(new PrivilegedAction<Void>() {
+					@Override
+					public Void run() {
+						producer.flush();
+						return null;
+					}
+				});
+			} catch (Throwable t) {
+				LOG.error("Error flush Kafka producer");
+			}
+		}
 	}
 
 	public boolean isAsync() {
 		return true;
+	}
+
+	private Map<String, Object> getKafkaParams(Properties props) {
+		final Map<String, Object> kakfaProps = new HashMap<String,Object>();
+		kakfaProps.put("security.protocol",
+				getParamValue(props, AUDIT_KAFKA_SECURITY_PROTOCOL,"PLAINTEXT"));
+		kakfaProps.put("bootstrap.servers",
+				getParamValue(props, AUDIT_KAFKA_BROKER_LIST,"localhost:9092"));
+		kakfaProps.put("value.serializer",
+				getParamValue(props, AUDIT_KAFKA_VALUE_SERIALIZER,"org.apache.kafka.common.serialization.StringSerializer"));
+		kakfaProps.put("key.serializer",
+				getParamValue(props, AUDIT_KAFKA_KEY_SERIALIZER,"org.apache.kafka.common.serialization.StringSerializer"));
+		kakfaProps.put("acks", getParamValue(props, AUDIT_KAFKA_ACKS, "1"));
+		kakfaProps.put("batch.size", getParamValue(props, AUDIT_KAFKA_BATCH_SIZE, "1"));
+		kakfaProps.put("linger.ms", getParamValue(props, AUDIT_KAFKA_LINGER_MS, "1"));
+		kakfaProps.put("ssl.truststore.location", getParamValue(props, AUDIT_KAFKA_SSL_TRUSTSTORE_LOCATION, null));
+		kakfaProps.put("ssl.truststore.password", getParamValue(props, AUDIT_KAFKA_SSL_TRUSTSTORE_PASSWORD, null));
+		kakfaProps.put("ssl.keystore.location", getParamValue(props, AUDIT_KAFKA_SSL_KEYSTORE_LOCATION, null));
+		kakfaProps.put("ssl.keystore.password", getParamValue(props, AUDIT_KAFKA_SSL_KEYSTORE_PASSWORD, null));
+		kakfaProps.put("ssl.key.password", getParamValue(props, AUDIT_KAFKA_SSL_KEY_PASSWORD, null));
+		return kakfaProps;
+	}
+
+	private String getParamValue(Properties props, String paramName, String defaultValue) {
+		String value = MiscUtil.getStringProperty(props, paramName);
+		if (value == null || value.isEmpty()) {
+			value = defaultValue;
+		}
+		return value;
 	}
 
 }
